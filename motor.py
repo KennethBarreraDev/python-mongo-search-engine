@@ -5,7 +5,7 @@ from nltk.tokenize import word_tokenize #Tokenizar texto
 from nltk.corpus import stopwords #Cargar stopwords
 from collections import Counter # Contar palbras repetidas
 from collections import OrderedDict # Ordenar el conteo de palabras repetdias
-
+from threading import Thread #Librería de hilos
 
 palabras_enlace = []
 texto_enlace = ''
@@ -27,6 +27,15 @@ def leer_primer_enlace(coleccion):
     except Error as e:
         print("Error al conectarse a MongoDB: ", e)
     return documento
+
+def leer_enlaces_hilos(coleccion):
+    try:
+        query = { "revisado": False }
+        documento = coleccion.find(query).limit(10)
+    except Error as e:
+        print("Error al conectarse a MongoDB: ", e)
+    return documento
+
 
 def establecer_palabras_repetidas (coleccion, url, palabra1, ranking1, palabra2, ranking2, palabra3, ranking3, contenido):
     try:
@@ -121,7 +130,10 @@ def obtener_enlaces(coleccion, enlace_actual):
         lista_repetidas.append(value)
 
     #Establecer palabras y rankings en la base de datos
-    establecer_palabras_repetidas(coleccion, enlace_actual, lista_repetidas[0], lista_repetidas[1], lista_repetidas[2], lista_repetidas[3], lista_repetidas[4], lista_repetidas[5], texto_enlace[0:256])
+    if len(texto_enlace) > 256:
+       texto_enlace = texto_enlace[0:256]
+
+    establecer_palabras_repetidas(coleccion, enlace_actual, lista_repetidas[0], lista_repetidas[1], lista_repetidas[2], lista_repetidas[3], lista_repetidas[4], lista_repetidas[5], texto_enlace)
 
 
     enlaces_encontrados = []
@@ -188,13 +200,53 @@ def marcar_enlace_revisado (coleccion, enlace_a_marcar):
     
     return
 
+def procesar_enlace_hilo(mi_coleccion, url):
+     enlaces_encontrados=obtener_enlaces(mi_coleccion, url)
+     almacenar_enlaces(mi_coleccion, enlaces_encontrados)
+     marcar_enlace_revisado(mi_coleccion, url)
 
 
+#Conexión a la base de datos
 mi_coleccion = conectar_dbms()
-for x in range(1):
-    primer_enlace = leer_primer_enlace(mi_coleccion)
-    for datos_enlace in primer_enlace:
-        enlaces_encontrados=obtener_enlaces(mi_coleccion, datos_enlace['_id'])
-        almacenar_enlaces(mi_coleccion, enlaces_encontrados)
-        marcar_enlace_revisado(mi_coleccion, datos_enlace['_id'])
+
+
+documentos_totales = mi_coleccion.count_documents({})
+
+if documentos_totales==0:
+    print('No hay documentos en la base de datos')
+
+else:
+    for iterador in range(1000):
+        documentos_totales = mi_coleccion.count_documents({})
+        #Llenar la base de datos con todos los enlaces del primer documento antes de usar hilos (asegura que haya más documentos que hilos)
+        if documentos_totales==1:
+            print("Estableciendo enlaces antes de usar hilos")
+            primer_enlace = leer_primer_enlace(mi_coleccion)
+            print(primer_enlace)
+            for datos_enlace in primer_enlace:
+                enlaces_encontrados=obtener_enlaces(mi_coleccion, datos_enlace['_id'])
+                almacenar_enlaces(mi_coleccion, enlaces_encontrados)
+                marcar_enlace_revisado(mi_coleccion, datos_enlace['_id'])
+
+        elif documentos_totales>1:
+            print("Obtenido hilos")
+            enlaces= leer_enlaces_hilos(mi_coleccion)
+            lista_enlaces=[]
+            for datos_enlace in enlaces:
+                lista_enlaces.append(datos_enlace['_id'])
+            
+            hilos_locales = []
+            for hilo in range(10):
+                t = Thread(target=procesar_enlace_hilo(mi_coleccion, lista_enlaces[hilo]))
+                hilos_locales.append(t)
+            
+            for thread in hilos_locales:
+                thread.start()
+
+            for thread in hilos_locales:
+                thread.join()
+
+            lista_enlaces.clear()
+            hilos_locales.clear()
+
 
