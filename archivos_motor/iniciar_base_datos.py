@@ -25,7 +25,8 @@ if item_count < 1:
             "ranking2": 0,
             "palabra3": "",
             "ranking3": 0,
-            "contenido": "" 
+            "contenido": "",
+            "titulo": ""
     }
 
     x = collection.insert_one(data)
